@@ -11,6 +11,9 @@ demand, and auto-raises replenishment orders before a stockout happens.
 It is **multi-tenant**: RIPPLR admins see the whole network, while each brand logs into a portal
 scoped to only its own SKUs, inventory, replenishment, returns and AR.
 
+> 📸 A full screenshot walkthrough of every screen (admin tour + brand portal) lives in
+> [`walkthrough/`](walkthrough/). Regenerate with `node scripts/walkthrough.js` (see the script header).
+
 ## What it does
 
 - **SLA Command Center** — live KPIs against the Ripplr SLA charter: Fill Rate (≥97%),
