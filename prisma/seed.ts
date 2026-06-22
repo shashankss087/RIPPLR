@@ -13,6 +13,7 @@ const between = (min: number, max: number) => Math.round(min + rng() * (max - mi
 
 async function main() {
   console.log("Resetting data...");
+  await prisma.return.deleteMany();
   await prisma.salesHistory.deleteMany();
   await prisma.replenishmentOrder.deleteMany();
   await prisma.channelStock.deleteMany();
@@ -184,6 +185,53 @@ async function main() {
     }
   }
 
+  // ---- Reverse logistics: seed a mix of open and processed returns ----
+  const RECOVERY: Record<string, number> = { RESELL: 0.95, REFURBISH: 0.6, RECYCLE: 0.05, DISPOSE: 0 };
+  const reasons = ["DAMAGED", "NEAR_EXPIRY", "WRONG_ITEM", "QUALITY_ISSUE", "OVERSTOCK", "CUSTOMER_RETURN"];
+  const pairs = await prisma.channelStock.findMany({ include: { sku: true } });
+  for (let k = 0; k < 44; k++) {
+    const p = pairs[between(0, pairs.length - 1)];
+    const reason = reasons[between(0, reasons.length - 1)];
+    const qty = between(5, 60);
+    const createdAt = new Date();
+    createdAt.setUTCDate(createdAt.getUTCDate() - between(0, 20));
+
+    let status = rng() < 0.5 ? "INITIATED" : "IN_QC";
+    let disposition: string | null = null;
+    let recoveredValue = 0;
+    let restocked = false;
+    let processedAt: Date | null = null;
+
+    if (rng() < 0.65) {
+      // resell is more likely for non-quality reasons
+      const resellLikely = ["WRONG_ITEM", "OVERSTOCK", "CUSTOMER_RETURN"].includes(reason);
+      const roll = rng();
+      disposition = resellLikely
+        ? roll < 0.7 ? "RESELL" : roll < 0.85 ? "REFURBISH" : roll < 0.95 ? "RECYCLE" : "DISPOSE"
+        : roll < 0.25 ? "RESELL" : roll < 0.5 ? "REFURBISH" : roll < 0.8 ? "RECYCLE" : "DISPOSE";
+      recoveredValue = Math.round(qty * p.sku.mrp * RECOVERY[disposition]);
+      restocked = disposition === "RESELL";
+      status = "DISPOSITIONED";
+      processedAt = new Date(createdAt.getTime() + between(4, 30) * 3600 * 1000);
+    }
+
+    await prisma.return.create({
+      data: {
+        skuId: p.skuId,
+        channelId: p.channelId,
+        mfcId: p.mfcId ?? mfcs[0].id,
+        qty,
+        reason,
+        status,
+        disposition,
+        recoveredValue,
+        restocked,
+        processedAt,
+        createdAt,
+      },
+    });
+  }
+
   const counts = {
     brands: await prisma.brand.count(),
     skus: await prisma.sku.count(),
@@ -192,6 +240,7 @@ async function main() {
     inventory: await prisma.inventory.count(),
     channelStock: await prisma.channelStock.count(),
     salesHistory: await prisma.salesHistory.count(),
+    returns: await prisma.return.count(),
   };
   console.log("Seed complete:", counts);
 }

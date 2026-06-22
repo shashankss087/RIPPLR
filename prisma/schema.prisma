@@ -44,6 +44,7 @@ model Sku {
   channelStock ChannelStock[]
   replenishments ReplenishmentOrder[]
   salesHistory SalesHistory[]
+  returns      Return[]
 
   @@index([brandId])
 }
@@ -60,6 +61,7 @@ model Mfc {
   inventory      Inventory[]
   channelStock   ChannelStock[]
   replenishments ReplenishmentOrder[]
+  returns        Return[]
 }
 
 // A downstream demand channel: a q-commerce platform, modern trade chain,
@@ -74,6 +76,7 @@ model Channel {
   channelStock   ChannelStock[]
   replenishments ReplenishmentOrder[]
   salesHistory   SalesHistory[]
+  returns        Return[]
 
   @@index([type])
 }
@@ -154,4 +157,33 @@ model SalesHistory {
 
   @@unique([skuId, channelId, date])
   @@index([skuId, channelId])
+}
+
+// A reverse-logistics return flowing back from a channel into an MFC's returns
+// zone. Lifecycle: INITIATED -> IN_QC -> DISPOSITIONED -> CLOSED.
+// A RESELL disposition restocks the MFC; all dispositions book recovered value.
+model Return {
+  id             String    @id @default(cuid())
+  skuId          String
+  channelId      String
+  mfcId          String // processing MFC (reverse-logistics zone)
+  qty            Int
+  reason         String // DAMAGED | NEAR_EXPIRY | WRONG_ITEM | QUALITY_ISSUE | OVERSTOCK | CUSTOMER_RETURN
+  status         String    @default("INITIATED") // INITIATED | IN_QC | DISPOSITIONED | CLOSED
+  disposition    String? // RESELL | REFURBISH | RECYCLE | DISPOSE
+  inspectionPoints Int     @default(23) // 23-point QC protocol from the OutNIF deck
+  recoveredValue Float     @default(0) // INR recovered at disposition
+  restocked      Boolean   @default(false)
+  notes          String?
+  createdAt      DateTime  @default(now())
+  processedAt    DateTime? // when dispositioned
+  updatedAt      DateTime  @updatedAt
+
+  sku     Sku     @relation(fields: [skuId], references: [id], onDelete: Cascade)
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  mfc     Mfc     @relation(fields: [mfcId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([skuId])
+  @@index([reason])
 }

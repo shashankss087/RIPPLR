@@ -8,6 +8,7 @@ const nav = [
   { href: "/forecast", label: "Demand & Forecast", icon: "∿" },
   { href: "/channels", label: "Channel Orchestration", icon: "⇄" },
   { href: "/replenishment", label: "Replenishment", icon: "↻" },
+  { href: "/returns", label: "Reverse Logistics", icon: "↩" },
   { href: "/inventory", label: "MFC Inventory", icon: "▦" },
   { href: "/brands", label: "Brands & Onboarding", icon: "★" },
 ];

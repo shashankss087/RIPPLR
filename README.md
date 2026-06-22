@@ -21,6 +21,10 @@ demand, and auto-raises replenishment orders before a stockout happens.
 - **Replenishment engine (VMI)** — refreshes forecasts, then raises prioritised PO suggestions
   ~lead-time *ahead* of the projected stockout, allocates MFC stock, and drives the lifecycle:
   `SUGGESTED → APPROVED → DISPATCHED → DELIVERED`. Dispatch moves units out of the MFC onto the shelf.
+- **Reverse Logistics** — returns flow back from channels into MFC returns zones:
+  `INITIATED → IN_QC (23-point) → DISPOSITIONED → CLOSED`. A **Resell** disposition restocks MFC
+  inventory; every disposition (Resell / Refurbish / Recycle / Dispose) books recovered value.
+  Tracks restock rate, value recovered, QC TAT, and a return-reasons quality loop shared with brands.
 - **MFC Inventory** — source-of-truth stock (on-hand / allocated / available / in-transit / safety)
   across seven MFCs (Bangalore, Hyderabad, Chennai, Mumbai, Pune, Delhi NCR, Ahmedabad).
 - **Brands & Onboarding** — onboard a brand in seconds; portfolio view with SKU counts.
@@ -62,7 +66,11 @@ To reset the data at any time: `npm run db:reset`.
 | GET    | `/api/inventory`               | MFC inventory lines                      |
 | GET    | `/api/mfcs`                    | MFCs with load summary                   |
 | GET    | `/api/channels`                | Channels                                 |
+| GET    | `/api/skus`                    | SKUs (for return logging)                |
 | GET/POST | `/api/brands`                | List / onboard brands                    |
+| GET/POST | `/api/returns`               | List / log returns                       |
+| GET    | `/api/returns/summary`         | Reverse-logistics analytics              |
+| PATCH  | `/api/returns/:id`             | Advance / disposition a return           |
 
 ## Data model
 
@@ -71,7 +79,6 @@ demand side; `ReplenishmentOrder` links an MFC to a channel for a SKU. See `pris
 
 ## Roadmap (from the decks, not yet built)
 
-- Reverse logistics / returns disposition workflow.
 - Cross-border (OutNIF) corridor tracking and duty-optimized routing.
 - Real platform integrations (Blinkit/Zepto/Amazon APIs) replacing the simulated channel sync.
 - Collection (AR) and Delivery (last-mile) app surfaces.
