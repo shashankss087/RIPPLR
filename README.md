@@ -8,6 +8,9 @@ This implements the product described in the Ripplr DaaS / Green-Channel / OutNI
 a control tower that sees brand inventory at every MFC and every downstream channel, forecasts
 demand, and auto-raises replenishment orders before a stockout happens.
 
+It is **multi-tenant**: RIPPLR admins see the whole network, while each brand logs into a portal
+scoped to only its own SKUs, inventory, replenishment, returns and AR.
+
 ## What it does
 
 - **SLA Command Center** — live KPIs against the Ripplr SLA charter: Fill Rate (≥97%),
@@ -36,6 +39,9 @@ demand, and auto-raises replenishment orders before a stockout happens.
 - **MFC Inventory** — source-of-truth stock (on-hand / allocated / available / in-transit / safety)
   across seven MFCs (Bangalore, Hyderabad, Chennai, Mumbai, Pune, Delhi NCR, Ahmedabad).
 - **Brands & Onboarding** — onboard a brand in seconds; portfolio view with SKU counts.
+- **Auth & multi-tenant portal** — HMAC-signed cookie sessions with scrypt password hashing
+  (no external auth dependency). Edge middleware gates every route; server-side reads are
+  tenant-scoped so a BRAND user only ever sees its own data, while RIPPLR_ADMIN sees everything.
 
 ## Tech stack
 
@@ -60,6 +66,16 @@ deliberately seeded below target cover so the engine has work to do — hit **Ru
 Engine** on the dashboard.
 
 To reset the data at any time: `npm run db:reset`.
+
+### Demo logins (password: `ripplr123`)
+
+| Email               | Role         | Sees                          |
+| ------------------- | ------------ | ----------------------------- |
+| `admin@ripplr.com`  | RIPPLR Admin | The whole network             |
+| `ops@happilo.com`   | Brand        | Only Happilo's data           |
+| `ops@fogg.com`      | Brand        | Only Fogg's data              |
+
+(Every seeded brand gets an `ops@<brand>.com` login.)
 
 ## API
 
@@ -86,6 +102,10 @@ To reset the data at any time: `npm run db:reset`.
 | PATCH  | `/api/invoices/:id`            | Record a payment                         |
 | GET    | `/api/deliveries` · `/summary` | Last-mile trips · delivery summary       |
 | PATCH  | `/api/deliveries/:id`          | Advance / fail a delivery                |
+| POST   | `/api/auth/login` · `/logout`  | Sign in / out (sets session cookie)      |
+| GET    | `/api/auth/me`                 | Current session user                     |
+
+All data endpoints are tenant-scoped: a BRAND session only returns its own brand's rows.
 
 ## Data model
 

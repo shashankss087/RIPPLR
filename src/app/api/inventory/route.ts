@@ -1,10 +1,18 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getScope } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  let brandId: string | null;
+  try {
+    ({ brandId } = await getScope());
+  } catch {
+    return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+  }
   const inventory = await prisma.inventory.findMany({
+    where: brandId ? { sku: { brandId } } : undefined,
     include: {
       sku: { include: { brand: true } },
       mfc: true,

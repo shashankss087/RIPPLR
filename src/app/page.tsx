@@ -1,19 +1,29 @@
+import { redirect } from "next/navigation";
 import { getCoverAnalysis, getSlaSummary } from "@/lib/orchestration";
+import { getSessionUser } from "@/lib/auth";
 import { Kpi, PageHeader, StatusBadge, ChannelTypePill } from "@/components/ui";
 import { RunEngineButton } from "@/components/RunEngineButton";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const [sla, cover] = await Promise.all([getSlaSummary(), getCoverAnalysis()]);
+  const user = await getSessionUser();
+  if (!user) redirect("/login");
+  const brandId = user.role === "BRAND" ? user.brandId : null;
+
+  const [sla, cover] = await Promise.all([getSlaSummary(brandId), getCoverAnalysis(brandId)]);
   const atRisk = cover.filter((c) => c.status !== "HEALTHY").slice(0, 12);
 
   return (
     <div>
       <PageHeader
         title="SLA Command Center"
-        subtitle="Live orchestration health across every brand, MFC and channel. Targets per the Ripplr DaaS SLA charter."
-        actions={<RunEngineButton />}
+        subtitle={
+          brandId
+            ? `${user.brandName} portal — orchestration health for your SKUs across all channels.`
+            : "Live orchestration health across every brand, MFC and channel. Targets per the Ripplr DaaS SLA charter."
+        }
+        actions={user.role === "RIPPLR_ADMIN" ? <RunEngineButton /> : undefined}
       />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

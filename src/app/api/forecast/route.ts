@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
 import { getForecastDetails } from "@/lib/orchestration";
+import { getScope } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const details = await getForecastDetails();
-  return NextResponse.json(details);
+  try {
+    const { brandId } = await getScope();
+    return NextResponse.json(await getForecastDetails(brandId));
+  } catch {
+    return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+  }
 }

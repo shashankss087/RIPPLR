@@ -25,8 +25,24 @@ model Brand {
   skus      Sku[]
   shipments Shipment[]
   invoices  Invoice[]
+  users     User[]
 
   @@index([type])
+}
+
+// A portal user. RIPPLR_ADMIN sees everything; BRAND is scoped to its brand.
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         String   @default("BRAND") // RIPPLR_ADMIN | BRAND
+  brandId      String?
+  createdAt    DateTime @default(now())
+
+  brand Brand? @relation(fields: [brandId], references: [id])
+
+  @@index([brandId])
 }
 
 // A stock keeping unit belonging to a brand.

@@ -46,9 +46,13 @@ export function classifyCover(
   return "HEALTHY";
 }
 
+// Relation filter that scopes brand-owned models to a single brand (or all).
+const byBrand = (brandId?: string | null) => (brandId ? { sku: { brandId } } : {});
+
 /** Build a forecast for every SKU x channel from sales history (one query). */
-async function loadForecasts(): Promise<Map<string, Forecast>> {
+async function loadForecasts(brandId?: string | null): Promise<Map<string, Forecast>> {
   const rows = await prisma.salesHistory.findMany({
+    where: byBrand(brandId),
     orderBy: { date: "asc" },
     select: { skuId: true, channelId: true, date: true, units: true },
   });
@@ -64,12 +68,13 @@ async function loadForecasts(): Promise<Map<string, Forecast>> {
 }
 
 /** Forecast-aware cover analysis across all channel demand signals. */
-export async function getCoverAnalysis(): Promise<CoverRow[]> {
+export async function getCoverAnalysis(brandId?: string | null): Promise<CoverRow[]> {
   const [rows, forecasts] = await Promise.all([
     prisma.channelStock.findMany({
+      where: byBrand(brandId),
       include: { sku: { include: { brand: true } }, channel: true },
     }),
-    loadForecasts(),
+    loadForecasts(brandId),
   ]);
 
   return rows
@@ -290,8 +295,8 @@ export type SlaSummary = {
 };
 
 /** Compute the SLA Command Center headline metrics. */
-export async function getSlaSummary(): Promise<SlaSummary> {
-  const cover = await getCoverAnalysis();
+export async function getSlaSummary(brandId?: string | null): Promise<SlaSummary> {
+  const cover = await getCoverAnalysis(brandId);
   const channelSignals = cover.length || 1;
   const oosCount = cover.filter((c) => c.status === "OOS").length;
   const atRisk = cover.filter((c) => c.status !== "HEALTHY").length;
@@ -301,15 +306,18 @@ export async function getSlaSummary(): Promise<SlaSummary> {
     ? round(withAccuracy.reduce((s, c) => s + c.accuracy, 0) / withAccuracy.length)
     : 0;
 
-  const channelStocks = await prisma.channelStock.findMany({ select: { fillRate: true } });
+  const channelStocks = await prisma.channelStock.findMany({
+    where: byBrand(brandId),
+    select: { fillRate: true },
+  });
   const fillRate = channelStocks.length
     ? channelStocks.reduce((s, c) => s + c.fillRate, 0) / channelStocks.length
     : 1;
 
   const openReplenishments = await prisma.replenishmentOrder.count({
-    where: { status: { in: ["SUGGESTED", "APPROVED", "DISPATCHED"] } },
+    where: { status: { in: ["SUGGESTED", "APPROVED", "DISPATCHED"] }, ...byBrand(brandId) },
   });
-  const skuCount = await prisma.sku.count();
+  const skuCount = await prisma.sku.count({ where: brandId ? { brandId } : undefined });
 
   return {
     fillRate: round(fillRate * 100),
@@ -338,10 +346,13 @@ export type ForecastDetail = CoverRow & {
 };
 
 /** Per-signal forecast detail for the Demand & Forecast page. */
-export async function getForecastDetails(): Promise<ForecastDetail[]> {
+export async function getForecastDetails(brandId?: string | null): Promise<ForecastDetail[]> {
   const [rows, forecasts] = await Promise.all([
-    prisma.channelStock.findMany({ include: { sku: { include: { brand: true } }, channel: true } }),
-    loadForecasts(),
+    prisma.channelStock.findMany({
+      where: byBrand(brandId),
+      include: { sku: { include: { brand: true } }, channel: true },
+    }),
+    loadForecasts(brandId),
   ]);
 
   return rows

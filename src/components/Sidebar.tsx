@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { UserMenu } from "./UserMenu";
 
 const nav = [
   { href: "/", label: "SLA Command Center", icon: "▣" },
@@ -9,15 +10,16 @@ const nav = [
   { href: "/channels", label: "Channel Orchestration", icon: "⇄" },
   { href: "/replenishment", label: "Replenishment", icon: "↻" },
   { href: "/returns", label: "Reverse Logistics", icon: "↩" },
-  { href: "/corridor", label: "Cross-Border Corridor", icon: "✈" },
-  { href: "/deliveries", label: "Deliveries", icon: "⛟" },
+  { href: "/corridor", label: "Cross-Border Corridor", icon: "✈", adminOnly: true },
+  { href: "/deliveries", label: "Deliveries", icon: "⛟", adminOnly: true },
   { href: "/collections", label: "Collections (AR)", icon: "₹" },
   { href: "/inventory", label: "MFC Inventory", icon: "▦" },
-  { href: "/brands", label: "Brands & Onboarding", icon: "★" },
+  { href: "/brands", label: "Brands & Onboarding", icon: "★", adminOnly: true },
 ];
 
-export function Sidebar() {
+export function Sidebar({ user }: { user: { name: string; role: string; brandName: string | null } }) {
   const pathname = usePathname();
+  const items = nav.filter((n) => !n.adminOnly || user.role === "RIPPLR_ADMIN");
   return (
     <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-ink-600/60 bg-ink-800/60 px-4 py-6 md:flex">
       <div className="px-2">
@@ -34,7 +36,7 @@ export function Sidebar() {
       </div>
 
       <nav className="mt-8 flex flex-1 flex-col gap-1">
-        {nav.map((n) => {
+        {items.map((n) => {
           const active = pathname === n.href;
           return (
             <Link
@@ -51,10 +53,11 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="rounded-lg border border-ink-600/60 bg-ink-900/60 p-3 text-[11px] text-slate-400">
+      <div className="mb-3 rounded-lg border border-ink-600/60 bg-ink-900/60 p-3 text-[11px] text-slate-400">
         Green-Channel TAT <span className="font-semibold text-ripplr-500">12h</span> · Standard SLA{" "}
         <span className="font-semibold text-slate-200">48h</span>
       </div>
+      <UserMenu name={user.name} role={user.role} brandName={user.brandName} />
     </aside>
   );
 }

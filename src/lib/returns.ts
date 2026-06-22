@@ -140,8 +140,8 @@ export type ReturnsSummary = {
   byDisposition: { disposition: string; units: number; value: number }[];
 };
 
-export async function getReturnsSummary(): Promise<ReturnsSummary> {
-  const all = await prisma.return.findMany();
+export async function getReturnsSummary(brandId?: string | null): Promise<ReturnsSummary> {
+  const all = await prisma.return.findMany({ where: brandId ? { sku: { brandId } } : undefined });
   const totalUnits = all.reduce((s, r) => s + r.qty, 0);
   const open = all.filter((r) => r.status === "INITIATED" || r.status === "IN_QC");
   const dispositioned = all.filter((r) => r.disposition);

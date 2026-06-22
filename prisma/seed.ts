@@ -1,6 +1,14 @@
 import { PrismaClient } from "@prisma/client";
+import { randomBytes, scryptSync } from "node:crypto";
 
 const prisma = new PrismaClient();
+
+// Mirror src/lib/auth.ts hashing without importing it (auth.ts pulls in
+// next/headers, which isn't available in a plain seed script).
+const hashPw = (pw: string) => {
+  const salt = randomBytes(16).toString("hex");
+  return `${salt}:${scryptSync(pw, salt, 64).toString("hex")}`;
+};
 
 // Deterministic pseudo-random so seeded demand looks realistic but stable.
 function rand(seed: number) {
@@ -13,6 +21,7 @@ const between = (min: number, max: number) => Math.round(min + rng() * (max - mi
 
 async function main() {
   console.log("Resetting data...");
+  await prisma.user.deleteMany();
   await prisma.invoice.deleteMany();
   await prisma.delivery.deleteMany();
   await prisma.shipmentMilestone.deleteMany();
@@ -366,6 +375,18 @@ async function main() {
     });
   }
 
+  // ---- Portal users: one admin + one user per brand (password: ripplr123) ----
+  const pw = hashPw("ripplr123");
+  await prisma.user.create({
+    data: { email: "admin@ripplr.com", name: "Shashank (Admin)", role: "RIPPLR_ADMIN", passwordHash: pw },
+  });
+  for (const b of allBrands) {
+    const slug = b.name.toLowerCase().replace(/\s+/g, "");
+    await prisma.user.create({
+      data: { email: `ops@${slug}.com`, name: `${b.name} Ops`, role: "BRAND", brandId: b.id, passwordHash: pw },
+    });
+  }
+
   const counts = {
     brands: await prisma.brand.count(),
     skus: await prisma.sku.count(),
@@ -379,6 +400,7 @@ async function main() {
     shipments: await prisma.shipment.count(),
     invoices: await prisma.invoice.count(),
     deliveries: await prisma.delivery.count(),
+    users: await prisma.user.count(),
   };
   console.log("Seed complete:", counts);
 }

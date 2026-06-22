@@ -51,8 +51,8 @@ const BUCKET_LABELS: Record<string, string> = {
   D90_PLUS: "90+ days",
 };
 
-export async function getCollectionsSummary(): Promise<CollectionsSummary> {
-  const invoices = await prisma.invoice.findMany();
+export async function getCollectionsSummary(brandId?: string | null): Promise<CollectionsSummary> {
+  const invoices = await prisma.invoice.findMany({ where: brandId ? { brandId } : undefined });
   const now = new Date();
 
   const totalBilled = invoices.reduce((s, i) => s + i.amount, 0);
