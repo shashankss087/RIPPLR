@@ -11,13 +11,16 @@ demand, and auto-raises replenishment orders before a stockout happens.
 ## What it does
 
 - **SLA Command Center** — live KPIs against the Ripplr SLA charter: Fill Rate (≥97%),
-  Out-of-Stock (≤2%), Inventory Accuracy (≥99%), On-Time Dispatch (≥98%), plus at-risk coverage.
-- **Channel Orchestration** — days-of-cover for every SKU × channel, with a **Green-Channel** view
-  (D2C SKUs that feed q-commerce platforms — Blinkit, Zepto, Swiggy Instamart, BigBasket Now —
-  directly from MFCs on a 12h TAT, bypassing appointment bottlenecks).
-- **Replenishment engine** — scans cover, raises prioritised PO suggestions, allocates MFC stock,
-  and drives the lifecycle: `SUGGESTED → APPROVED → DISPATCHED → DELIVERED`. Dispatch moves units
-  out of the MFC and onto the channel shelf.
+  Out-of-Stock (≤2%), Inventory Accuracy (≥99%), Forecast Accuracy (≥92%), plus at-risk coverage.
+- **Demand & Forecast** — a dependency-free demand forecaster (EWMA level + linear trend +
+  day-of-week seasonality) per SKU × channel, with a projected stockout date, a 7-day forecast
+  curve, and a **back-tested accuracy** score (predict the last 7 days from prior data → MAPE).
+- **Channel Orchestration** — forecast-projected days-of-cover for every SKU × channel, with a
+  **Green-Channel** view (D2C SKUs that feed q-commerce platforms — Blinkit, Zepto, Swiggy
+  Instamart, BigBasket Now — directly from MFCs on a 12h TAT, bypassing appointment bottlenecks).
+- **Replenishment engine (VMI)** — refreshes forecasts, then raises prioritised PO suggestions
+  ~lead-time *ahead* of the projected stockout, allocates MFC stock, and drives the lifecycle:
+  `SUGGESTED → APPROVED → DISPATCHED → DELIVERED`. Dispatch moves units out of the MFC onto the shelf.
 - **MFC Inventory** — source-of-truth stock (on-hand / allocated / available / in-transit / safety)
   across seven MFCs (Bangalore, Hyderabad, Chennai, Mumbai, Pune, Delhi NCR, Ahmedabad).
 - **Brands & Onboarding** — onboard a brand in seconds; portfolio view with SKU counts.
@@ -51,8 +54,9 @@ To reset the data at any time: `npm run db:reset`.
 | Method | Route                          | Purpose                                  |
 | ------ | ------------------------------ | ---------------------------------------- |
 | GET    | `/api/sla`                     | SLA Command Center summary               |
-| GET    | `/api/cover`                   | Days-of-cover analysis (SKU × channel)   |
-| POST   | `/api/orchestrate`             | Run the replenishment engine             |
+| GET    | `/api/cover`                   | Forecast-projected days-of-cover         |
+| GET    | `/api/forecast`                | Per-signal forecast detail + back-test   |
+| POST   | `/api/orchestrate`             | Run the forecast-driven VMI engine       |
 | GET    | `/api/replenishment`           | List replenishment orders                |
 | PATCH  | `/api/replenishment/:id`       | Advance an order (`status` in body)      |
 | GET    | `/api/inventory`               | MFC inventory lines                      |
@@ -67,7 +71,6 @@ demand side; `ReplenishmentOrder` links an MFC to a channel for a SKU. See `pris
 
 ## Roadmap (from the decks, not yet built)
 
-- ML demand forecasting (currently a velocity proxy) and 72h-ahead VMI PO generation.
 - Reverse logistics / returns disposition workflow.
 - Cross-border (OutNIF) corridor tracking and duty-optimized routing.
 - Real platform integrations (Blinkit/Zepto/Amazon APIs) replacing the simulated channel sync.

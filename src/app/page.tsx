@@ -32,7 +32,13 @@ export default async function DashboardPage() {
           hint="Target ≤ 2%"
         />
         <Kpi label="Inventory Accuracy" value={sla.inventoryAccuracy} suffix="%" tone="good" hint="Target ≥ 99%" />
-        <Kpi label="On-Time Dispatch" value={sla.onTimeDispatch} suffix="%" tone="good" hint="Target ≥ 98%" />
+        <Kpi
+          label="Forecast Accuracy"
+          value={sla.forecastAccuracy}
+          suffix="%"
+          tone={sla.forecastAccuracy >= 92 ? "good" : "warn"}
+          hint="Back-tested · target ≥ 92%"
+        />
         <Kpi label="Active SKUs" value={sla.skuCount} hint="Across all brands" />
         <Kpi label="Channel Signals" value={sla.channelSignals} hint="SKU × channel demand points" />
         <Kpi
@@ -62,7 +68,7 @@ export default async function DashboardPage() {
                   <th>Brand · SKU</th>
                   <th>Channel</th>
                   <th>On Shelf</th>
-                  <th>Velocity/day</th>
+                  <th>Forecast/day</th>
                   <th>Cover</th>
                   <th>Target</th>
                   <th>Green</th>
@@ -87,7 +93,7 @@ export default async function DashboardPage() {
                       </div>
                     </td>
                     <td className="tabular-nums">{c.onShelf}</td>
-                    <td className="tabular-nums text-slate-400">{c.dailyVelocity}</td>
+                    <td className="tabular-nums text-slate-400">{c.forecastVelocity}</td>
                     <td className="tabular-nums font-semibold">{c.coverDays}d</td>
                     <td className="tabular-nums text-slate-400">{c.targetCoverDays}d</td>
                     <td>{c.greenChannel ? <span className="text-ripplr-500">●</span> : <span className="text-slate-600">—</span>}</td>

@@ -43,6 +43,7 @@ model Sku {
   inventory   Inventory[]
   channelStock ChannelStock[]
   replenishments ReplenishmentOrder[]
+  salesHistory SalesHistory[]
 
   @@index([brandId])
 }
@@ -72,6 +73,7 @@ model Channel {
 
   channelStock   ChannelStock[]
   replenishments ReplenishmentOrder[]
+  salesHistory   SalesHistory[]
 
   @@index([type])
 }
@@ -101,7 +103,9 @@ model ChannelStock {
   channelId     String
   mfcId         String? // serving MFC
   onShelf       Int      @default(0)
-  dailyVelocity Float    @default(0) // avg units sold/day (ML forecast proxy)
+  dailyVelocity Float    @default(0) // last-known avg units sold/day
+  forecastVelocity Float @default(0) // engine-computed forecast (updated on each run)
+  leadTimeHours Int      @default(48) // MFC -> channel replenishment lead time
   targetCoverDays Int    @default(7) // desired days-of-cover at channel
   fillRate      Float    @default(1) // 0..1 rolling fill rate
   lastSyncAt    DateTime @default(now())
@@ -134,4 +138,20 @@ model ReplenishmentOrder {
 
   @@index([status])
   @@index([skuId])
+}
+
+// Daily offtake (units sold) at a channel — the demand signal the forecast
+// engine learns from. One row per SKU x channel x day.
+model SalesHistory {
+  id        String   @id @default(cuid())
+  skuId     String
+  channelId String
+  date      DateTime
+  units     Int
+
+  sku     Sku     @relation(fields: [skuId], references: [id], onDelete: Cascade)
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([skuId, channelId, date])
+  @@index([skuId, channelId])
 }

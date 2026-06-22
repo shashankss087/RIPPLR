@@ -13,6 +13,8 @@ type CoverRow = {
   greenChannel: boolean;
   onShelf: number;
   dailyVelocity: number;
+  forecastVelocity: number;
+  accuracy: number;
   targetCoverDays: number;
   coverDays: number;
   status: "OOS" | "CRITICAL" | "LOW" | "HEALTHY";
@@ -69,7 +71,7 @@ export default function ChannelsPage() {
                   <th>Brand · SKU</th>
                   <th>Channel</th>
                   <th>On Shelf</th>
-                  <th>Velocity</th>
+                  <th>Forecast/day</th>
                   <th>Cover</th>
                   <th>Target</th>
                   <th>Green</th>
@@ -94,7 +96,10 @@ export default function ChannelsPage() {
                       </div>
                     </td>
                     <td className="tabular-nums">{r.onShelf}</td>
-                    <td className="tabular-nums text-slate-400">{r.dailyVelocity}/d</td>
+                    <td className="tabular-nums text-slate-400">
+                      {r.forecastVelocity}/d
+                      {r.accuracy > 0 && <span className="ml-1 text-[10px] text-slate-600">±{(100 - r.accuracy).toFixed(0)}%</span>}
+                    </td>
                     <td className="tabular-nums font-semibold">{r.coverDays}d</td>
                     <td className="tabular-nums text-slate-400">{r.targetCoverDays}d</td>
                     <td>

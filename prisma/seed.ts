@@ -13,6 +13,7 @@ const between = (min: number, max: number) => Math.round(min + rng() * (max - mi
 
 async function main() {
   console.log("Resetting data...");
+  await prisma.salesHistory.deleteMany();
   await prisma.replenishmentOrder.deleteMany();
   await prisma.channelStock.deleteMany();
   await prisma.inventory.deleteMany();
@@ -143,6 +144,7 @@ async function main() {
       for (const ch of targets) {
         const velocity = between(8, 120);
         const targetCoverDays = ch.type === "Q_COMMERCE" ? between(3, 6) : between(7, 14);
+        const leadTimeHours = ch.type === "Q_COMMERCE" ? 12 : 48;
         // Deliberately leave some at OOS-risk so the engine has work to do.
         const coverNow = rng() < 0.4 ? rng() * targetCoverDays * 0.6 : targetCoverDays * (0.6 + rng());
         await prisma.channelStock.create({
@@ -152,10 +154,32 @@ async function main() {
             mfcId: stockingMfcs[0].id,
             onShelf: Math.max(0, Math.round(velocity * coverNow)),
             dailyVelocity: velocity,
+            forecastVelocity: velocity,
+            leadTimeHours,
             targetCoverDays,
             fillRate: 0.9 + rng() * 0.1,
           },
         });
+
+        // ~42 days of daily offtake with weekend lift, a gentle trend and noise,
+        // so the forecast engine has a real signal to learn from.
+        const HISTORY_DAYS = 42;
+        const isQcomm = ch.type === "Q_COMMERCE";
+        const trendPerDay = (rng() - 0.35) * velocity * 0.012; // slight growth bias
+        const history: { skuId: string; channelId: string; date: Date; units: number }[] = [];
+        for (let d = HISTORY_DAYS; d >= 1; d--) {
+          const date = new Date();
+          date.setUTCHours(0, 0, 0, 0);
+          date.setUTCDate(date.getUTCDate() - d);
+          const dow = date.getUTCDay();
+          const weekend = dow === 0 || dow === 6;
+          const dowLift = weekend ? (isQcomm ? 1.35 : 1.1) : 0.95;
+          const base = velocity + trendPerDay * (HISTORY_DAYS - d);
+          const noise = 1 + (rng() - 0.5) * 0.3;
+          const units = Math.max(0, Math.round(base * dowLift * noise));
+          history.push({ skuId: sku.id, channelId: ch.id, date, units });
+        }
+        await prisma.salesHistory.createMany({ data: history });
       }
     }
   }
@@ -167,6 +191,7 @@ async function main() {
     channels: await prisma.channel.count(),
     inventory: await prisma.inventory.count(),
     channelStock: await prisma.channelStock.count(),
+    salesHistory: await prisma.salesHistory.count(),
   };
   console.log("Seed complete:", counts);
 }

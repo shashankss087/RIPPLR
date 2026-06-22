@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 const nav = [
   { href: "/", label: "SLA Command Center", icon: "▣" },
+  { href: "/forecast", label: "Demand & Forecast", icon: "∿" },
   { href: "/channels", label: "Channel Orchestration", icon: "⇄" },
   { href: "/replenishment", label: "Replenishment", icon: "↻" },
   { href: "/inventory", label: "MFC Inventory", icon: "▦" },

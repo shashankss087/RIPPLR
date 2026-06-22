@@ -1,14 +1,15 @@
 import { prisma } from "./prisma";
+import { forecast, projectedStockoutDays, type Forecast } from "./forecast";
 
 /**
- * The replenishment orchestration engine.
+ * The replenishment orchestration engine — forecast-driven.
  *
- * For every (SKU x channel) demand signal it computes days-of-cover from the
- * current shelf position and forecast velocity. When cover drops below the
- * channel's target it raises a replenishment order, sourced from the MFC with
- * the most available (on-hand minus allocated) stock. Green-Channel SKUs on
- * q-commerce get a tighter TAT (12h) per the Green Channel deck; everything
- * else uses the 48h replenishment SLA.
+ * For every (SKU x channel) demand signal it builds a demand forecast from
+ * sales history, projects the stockout date from the current shelf position,
+ * and raises a Vendor-Managed-Inventory replenishment order ~lead-time ahead of
+ * that stockout (the deck's "72h-ahead PO automation"). Orders are sourced from
+ * the MFC with the most available stock. Green-Channel q-commerce SKUs get a
+ * 12h TAT; everything else uses the 48h replenishment SLA.
  */
 
 export type CoverRow = {
@@ -22,9 +23,12 @@ export type CoverRow = {
   channelType: string;
   greenChannel: boolean;
   onShelf: number;
-  dailyVelocity: number;
+  forecastVelocity: number; // forecast units/day
+  dailyVelocity: number; // last-known velocity (pre-forecast)
   targetCoverDays: number;
-  coverDays: number; // current days of cover
+  leadTimeDays: number;
+  coverDays: number; // forecast-projected days of cover
+  accuracy: number; // back-tested forecast accuracy %
   status: "OOS" | "CRITICAL" | "LOW" | "HEALTHY";
 };
 
@@ -32,31 +36,55 @@ const CRITICAL_RATIO = 0.34; // < 34% of target cover
 const LOW_RATIO = 0.75; // < 75% of target cover
 
 export function classifyCover(
+  projectedDays: number,
   onShelf: number,
-  dailyVelocity: number,
   targetCoverDays: number
-): { coverDays: number; status: CoverRow["status"] } {
-  const coverDays = dailyVelocity > 0 ? onShelf / dailyVelocity : onShelf > 0 ? 99 : 0;
-  let status: CoverRow["status"];
-  if (onShelf <= 0) status = "OOS";
-  else if (coverDays < targetCoverDays * CRITICAL_RATIO) status = "CRITICAL";
-  else if (coverDays < targetCoverDays * LOW_RATIO) status = "LOW";
-  else status = "HEALTHY";
-  return { coverDays: Math.round(coverDays * 10) / 10, status };
+): CoverRow["status"] {
+  if (onShelf <= 0) return "OOS";
+  if (projectedDays < targetCoverDays * CRITICAL_RATIO) return "CRITICAL";
+  if (projectedDays < targetCoverDays * LOW_RATIO) return "LOW";
+  return "HEALTHY";
 }
 
-/** Read-only cover analysis across all channel demand signals. */
-export async function getCoverAnalysis(): Promise<CoverRow[]> {
-  const rows = await prisma.channelStock.findMany({
-    include: {
-      sku: { include: { brand: true } },
-      channel: true,
-    },
+/** Build a forecast for every SKU x channel from sales history (one query). */
+async function loadForecasts(): Promise<Map<string, Forecast>> {
+  const rows = await prisma.salesHistory.findMany({
+    orderBy: { date: "asc" },
+    select: { skuId: true, channelId: true, date: true, units: true },
   });
+  const grouped = new Map<string, { date: string; units: number }[]>();
+  for (const r of rows) {
+    const key = `${r.skuId}_${r.channelId}`;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key)!.push({ date: r.date.toISOString().slice(0, 10), units: r.units });
+  }
+  const out = new Map<string, Forecast>();
+  for (const [key, points] of grouped) out.set(key, forecast(points));
+  return out;
+}
+
+/** Forecast-aware cover analysis across all channel demand signals. */
+export async function getCoverAnalysis(): Promise<CoverRow[]> {
+  const [rows, forecasts] = await Promise.all([
+    prisma.channelStock.findMany({
+      include: { sku: { include: { brand: true } }, channel: true },
+    }),
+    loadForecasts(),
+  ]);
 
   return rows
     .map((r) => {
-      const { coverDays, status } = classifyCover(r.onShelf, r.dailyVelocity, r.targetCoverDays);
+      const f = forecasts.get(`${r.skuId}_${r.channelId}`);
+      const forecastVelocity = f ? f.forecastVelocity : r.dailyVelocity;
+      const accuracy = f ? f.accuracy : 0;
+      const coverDays = f
+        ? projectedStockoutDays(r.onShelf, f)
+        : forecastVelocity > 0
+          ? Math.round((r.onShelf / forecastVelocity) * 10) / 10
+          : r.onShelf > 0
+            ? 99
+            : 0;
+      const status = classifyCover(coverDays, r.onShelf, r.targetCoverDays);
       return {
         channelStockId: r.id,
         skuId: r.skuId,
@@ -68,9 +96,12 @@ export async function getCoverAnalysis(): Promise<CoverRow[]> {
         channelType: r.channel.type,
         greenChannel: r.sku.greenChannel && r.channel.greenChannel,
         onShelf: r.onShelf,
+        forecastVelocity,
         dailyVelocity: r.dailyVelocity,
         targetCoverDays: r.targetCoverDays,
+        leadTimeDays: Math.round((r.leadTimeHours / 24) * 10) / 10,
         coverDays,
+        accuracy,
         status,
       } as CoverRow;
     })
@@ -92,51 +123,87 @@ export type OrchestrationResult = {
   scanned: number;
   raised: number;
   skippedNoStock: number;
-  orders: { skuName: string; channelName: string; qty: number; priority: string; tatHours: number }[];
+  forecastUpdated: number;
+  orders: { skuName: string; channelName: string; qty: number; priority: string; tatHours: number; reason: string }[];
 };
 
 /**
- * Run the engine: scan cover, raise SUGGESTED replenishment orders to bring
- * each at-risk channel back up to target cover, allocating MFC stock.
- * Idempotent-ish: it won't stack a new suggestion if one is already open
- * (SUGGESTED/APPROVED) for the same SKU+channel.
+ * Run the engine: refresh forecasts, then for each signal projected to stock
+ * out within (target cover + lead time) raise a SUGGESTED VMI replenishment to
+ * restore target cover, allocating MFC stock. Won't stack a suggestion if one
+ * is already open for the same SKU+channel.
  */
 export async function runOrchestration(): Promise<OrchestrationResult> {
-  const cover = await getCoverAnalysis();
-  const atRisk = cover.filter((c) => c.status === "OOS" || c.status === "CRITICAL" || c.status === "LOW");
+  const [rows, forecasts] = await Promise.all([
+    prisma.channelStock.findMany({ include: { sku: { include: { brand: true } }, channel: true } }),
+    loadForecasts(),
+  ]);
 
-  const result: OrchestrationResult = { scanned: cover.length, raised: 0, skippedNoStock: 0, orders: [] };
+  const result: OrchestrationResult = {
+    scanned: rows.length,
+    raised: 0,
+    skippedNoStock: 0,
+    forecastUpdated: 0,
+    orders: [],
+  };
 
-  for (const c of atRisk) {
+  for (const r of rows) {
+    const f = forecasts.get(`${r.skuId}_${r.channelId}`);
+    const forecastVelocity = f ? f.forecastVelocity : r.dailyVelocity;
+
+    // Persist the refreshed forecast onto the channel stock.
+    if (f && Math.abs(forecastVelocity - r.forecastVelocity) > 0.05) {
+      await prisma.channelStock.update({
+        where: { id: r.id },
+        data: { forecastVelocity },
+      });
+      result.forecastUpdated += 1;
+    }
+
+    const projectedDays = f
+      ? projectedStockoutDays(r.onShelf, f)
+      : forecastVelocity > 0
+        ? r.onShelf / forecastVelocity
+        : r.onShelf > 0
+          ? 99
+          : 0;
+
+    const leadDays = r.leadTimeHours / 24;
+    // VMI trigger: will we run out before a fresh order could land?
+    const triggerThreshold = r.targetCoverDays * LOW_RATIO + leadDays;
+    if (r.onShelf > 0 && projectedDays > triggerThreshold) continue;
+
     const existing = await prisma.replenishmentOrder.findFirst({
-      where: { skuId: c.skuId, channelId: c.channelId, status: { in: ["SUGGESTED", "APPROVED"] } },
+      where: { skuId: r.skuId, channelId: r.channelId, status: { in: ["SUGGESTED", "APPROVED"] } },
     });
     if (existing) continue;
 
-    const target = Math.ceil(c.dailyVelocity * c.targetCoverDays);
-    const qty = Math.max(0, target - c.onShelf);
+    const target = Math.ceil(forecastVelocity * r.targetCoverDays);
+    const qty = Math.max(0, target - r.onShelf);
     if (qty <= 0) continue;
 
-    const source = await bestSourceMfc(c.skuId);
+    const source = await bestSourceMfc(r.skuId);
     if (!source || source.available <= 0) {
       result.skippedNoStock += 1;
       continue;
     }
 
     const dispatchQty = Math.min(qty, source.available);
-    const priority = c.status === "OOS" ? "CRITICAL" : c.status === "CRITICAL" ? "HIGH" : "NORMAL";
-    const tatHours = c.greenChannel ? 12 : 48;
-    const reason =
-      c.status === "OOS"
-        ? `Stocked out on ${c.channelName} — Green-Channel rush refill`
-        : `Cover ${c.coverDays}d below target ${c.targetCoverDays}d on ${c.channelName}`;
+    const isOos = r.onShelf <= 0;
+    const isCritical = projectedDays < r.targetCoverDays * CRITICAL_RATIO;
+    const priority = isOos ? "CRITICAL" : isCritical ? "HIGH" : "NORMAL";
+    const greenChannel = r.sku.greenChannel && r.channel.greenChannel;
+    const tatHours = greenChannel ? 12 : 48;
+    const reason = isOos
+      ? `Stocked out on ${r.channel.name} — Green-Channel rush refill`
+      : `Forecast ${forecastVelocity}/day projects stockout in ${Math.round(projectedDays * 10) / 10}d (lead ${leadDays}d) on ${r.channel.name}`;
 
     await prisma.$transaction([
       prisma.replenishmentOrder.create({
         data: {
-          skuId: c.skuId,
+          skuId: r.skuId,
           mfcId: source.mfcId,
-          channelId: c.channelId,
+          channelId: r.channelId,
           qty: dispatchQty,
           reason,
           priority,
@@ -145,13 +212,20 @@ export async function runOrchestration(): Promise<OrchestrationResult> {
         },
       }),
       prisma.inventory.update({
-        where: { skuId_mfcId: { skuId: c.skuId, mfcId: source.mfcId } },
+        where: { skuId_mfcId: { skuId: r.skuId, mfcId: source.mfcId } },
         data: { allocated: { increment: dispatchQty } },
       }),
     ]);
 
     result.raised += 1;
-    result.orders.push({ skuName: c.skuName, channelName: c.channelName, qty: dispatchQty, priority, tatHours });
+    result.orders.push({
+      skuName: r.sku.name,
+      channelName: r.channel.name,
+      qty: dispatchQty,
+      priority,
+      tatHours,
+      reason,
+    });
   }
 
   return result;
@@ -207,6 +281,7 @@ export type SlaSummary = {
   onTimeDispatch: number;
   replenishmentTatHours: number;
   nPlus1: number;
+  forecastAccuracy: number;
   skuCount: number;
   channelSignals: number;
   atRisk: number;
@@ -220,9 +295,13 @@ export async function getSlaSummary(): Promise<SlaSummary> {
   const channelSignals = cover.length || 1;
   const oosCount = cover.filter((c) => c.status === "OOS").length;
   const atRisk = cover.filter((c) => c.status !== "HEALTHY").length;
-  const avgFill = cover.reduce((s, c) => s + 0, 0);
 
-  const channelStocks = await prisma.channelStock.findMany();
+  const withAccuracy = cover.filter((c) => c.accuracy > 0);
+  const forecastAccuracy = withAccuracy.length
+    ? round(withAccuracy.reduce((s, c) => s + c.accuracy, 0) / withAccuracy.length)
+    : 0;
+
+  const channelStocks = await prisma.channelStock.findMany({ select: { fillRate: true } });
   const fillRate = channelStocks.length
     ? channelStocks.reduce((s, c) => s + c.fillRate, 0) / channelStocks.length
     : 1;
@@ -231,15 +310,15 @@ export async function getSlaSummary(): Promise<SlaSummary> {
     where: { status: { in: ["SUGGESTED", "APPROVED", "DISPATCHED"] } },
   });
   const skuCount = await prisma.sku.count();
-  void avgFill;
 
   return {
     fillRate: round(fillRate * 100),
     oosRate: round((oosCount / channelSignals) * 100),
-    inventoryAccuracy: 99.1, // tracked KPI target from SLA deck
+    inventoryAccuracy: 99.1,
     onTimeDispatch: 97.8,
     replenishmentTatHours: 36,
     nPlus1: 95,
+    forecastAccuracy,
     skuCount,
     channelSignals: cover.length,
     atRisk,
@@ -250,4 +329,53 @@ export async function getSlaSummary(): Promise<SlaSummary> {
 
 function round(n: number) {
   return Math.round(n * 10) / 10;
+}
+
+export type ForecastDetail = CoverRow & {
+  next7: { date: string; units: number }[];
+  history: { date: string; units: number }[];
+  trendPerDay: number;
+};
+
+/** Per-signal forecast detail for the Demand & Forecast page. */
+export async function getForecastDetails(): Promise<ForecastDetail[]> {
+  const [rows, forecasts] = await Promise.all([
+    prisma.channelStock.findMany({ include: { sku: { include: { brand: true } }, channel: true } }),
+    loadForecasts(),
+  ]);
+
+  return rows
+    .map((r) => {
+      const f = forecasts.get(`${r.skuId}_${r.channelId}`);
+      const forecastVelocity = f ? f.forecastVelocity : r.dailyVelocity;
+      const coverDays = f
+        ? projectedStockoutDays(r.onShelf, f)
+        : forecastVelocity > 0
+          ? Math.round((r.onShelf / forecastVelocity) * 10) / 10
+          : 0;
+      const status = classifyCover(coverDays, r.onShelf, r.targetCoverDays);
+      return {
+        channelStockId: r.id,
+        skuId: r.skuId,
+        skuCode: r.sku.code,
+        skuName: r.sku.name,
+        brandName: r.sku.brand.name,
+        channelId: r.channelId,
+        channelName: r.channel.name,
+        channelType: r.channel.type,
+        greenChannel: r.sku.greenChannel && r.channel.greenChannel,
+        onShelf: r.onShelf,
+        forecastVelocity,
+        dailyVelocity: r.dailyVelocity,
+        targetCoverDays: r.targetCoverDays,
+        leadTimeDays: Math.round((r.leadTimeHours / 24) * 10) / 10,
+        coverDays,
+        accuracy: f ? f.accuracy : 0,
+        status,
+        next7: f ? f.next7 : [],
+        history: f ? f.history.slice(-21) : [],
+        trendPerDay: f ? f.trendPerDay : 0,
+      } as ForecastDetail;
+    })
+    .sort((a, b) => a.coverDays - b.coverDays);
 }
