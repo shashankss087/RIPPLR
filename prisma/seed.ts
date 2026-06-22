@@ -13,6 +13,8 @@ const between = (min: number, max: number) => Math.round(min + rng() * (max - mi
 
 async function main() {
   console.log("Resetting data...");
+  await prisma.invoice.deleteMany();
+  await prisma.delivery.deleteMany();
   await prisma.shipmentMilestone.deleteMany();
   await prisma.shipment.deleteMany();
   await prisma.tradeLane.deleteMany();
@@ -293,6 +295,77 @@ async function main() {
     await prisma.shipmentMilestone.createMany({ data: milestones });
   }
 
+  // ---- Collection App: accounts-receivable invoices ----
+  const now = new Date();
+  const invStatus = (amount: number, paid: number, due: Date) =>
+    paid >= amount ? "PAID" : due.getTime() < now.getTime() ? "OVERDUE" : paid > 0 ? "PARTIAL" : "OPEN";
+
+  for (let n = 0; n < 46; n++) {
+    const ch = channels[between(0, channels.length - 1)];
+    const brand = rng() < 0.8 ? allBrands[between(0, allBrands.length - 1)] : null;
+    const amount = between(40, 820) * 1000;
+    const issuedAt = new Date();
+    issuedAt.setUTCDate(issuedAt.getUTCDate() - between(2, 80));
+    const dueDate = new Date(issuedAt);
+    dueDate.setUTCDate(dueDate.getUTCDate() + 30); // net-30 terms
+
+    const roll = rng();
+    let paidAmount = 0;
+    if (roll < 0.4) paidAmount = amount; // fully paid
+    else if (roll < 0.6) paidAmount = Math.round(amount * (0.2 + rng() * 0.5)); // partial
+    // else unpaid
+
+    await prisma.invoice.create({
+      data: {
+        number: `INV-${String(n + 1).padStart(5, "0")}`,
+        channelId: ch.id,
+        brandId: brand?.id ?? null,
+        amount,
+        paidAmount,
+        status: invStatus(amount, paidAmount, dueDate),
+        issuedAt,
+        dueDate,
+      },
+    });
+  }
+
+  // ---- Delivery App: last-mile trips MFC -> channel ----
+  const drivers = ["Ravi Kumar", "Imran Shaikh", "Suresh Patil", "Anand Rao", "Vikram Singh", "Manoj Yadav", "Prakash N"];
+  const DSTATES = ["PENDING", "DISPATCHED", "OUT_FOR_DELIVERY", "DELIVERED", "DELIVERED", "FAILED"];
+  for (let t = 0; t < 26; t++) {
+    const mfc = mfcs[between(0, mfcs.length - 1)];
+    const ch = channels[between(0, channels.length - 1)];
+    const status = DSTATES[between(0, DSTATES.length - 1)];
+    const slaHours = ch.type === "Q_COMMERCE" ? 12 : 24;
+    const createdAt = new Date();
+    createdAt.setUTCHours(createdAt.getUTCHours() - between(1, 40));
+    const etaAt = new Date(createdAt.getTime() + slaHours * 3600 * 1000);
+    const dispatchedAt = ["DISPATCHED", "OUT_FOR_DELIVERY", "DELIVERED"].includes(status)
+      ? new Date(createdAt.getTime() + between(1, 4) * 3600 * 1000)
+      : null;
+    const deliveredAt = status === "DELIVERED" ? new Date(createdAt.getTime() + between(6, 28) * 3600 * 1000) : null;
+    const onTime = status === "DELIVERED" ? deliveredAt!.getTime() <= etaAt.getTime() : status === "FAILED" ? false : null;
+
+    await prisma.delivery.create({
+      data: {
+        reference: `TRIP-${String(t + 1).padStart(5, "0")}`,
+        mfcId: mfc.id,
+        channelId: ch.id,
+        status,
+        driverName: drivers[between(0, drivers.length - 1)],
+        vehicleNo: `KA${between(1, 51)}AB${between(1000, 9999)}`,
+        stops: between(1, 8),
+        units: between(40, 600),
+        slaHours,
+        etaAt,
+        dispatchedAt,
+        deliveredAt,
+        onTime,
+        createdAt,
+      },
+    });
+  }
+
   const counts = {
     brands: await prisma.brand.count(),
     skus: await prisma.sku.count(),
@@ -304,6 +377,8 @@ async function main() {
     returns: await prisma.return.count(),
     tradeLanes: await prisma.tradeLane.count(),
     shipments: await prisma.shipment.count(),
+    invoices: await prisma.invoice.count(),
+    deliveries: await prisma.delivery.count(),
   };
   console.log("Seed complete:", counts);
 }

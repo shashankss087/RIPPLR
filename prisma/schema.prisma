@@ -24,6 +24,7 @@ model Brand {
 
   skus      Sku[]
   shipments Shipment[]
+  invoices  Invoice[]
 
   @@index([type])
 }
@@ -63,6 +64,7 @@ model Mfc {
   channelStock   ChannelStock[]
   replenishments ReplenishmentOrder[]
   returns        Return[]
+  deliveries     Delivery[]
 }
 
 // A downstream demand channel: a q-commerce platform, modern trade chain,
@@ -78,6 +80,8 @@ model Channel {
   replenishments ReplenishmentOrder[]
   salesHistory   SalesHistory[]
   returns        Return[]
+  invoices       Invoice[]
+  deliveries     Delivery[]
 
   @@index([type])
 }
@@ -244,4 +248,51 @@ model ShipmentMilestone {
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
   @@index([shipmentId])
+}
+
+// An accounts-receivable invoice raised to a channel (the Collection App).
+// Status: OPEN | PARTIAL | PAID | OVERDUE (overdue derived from dueDate).
+model Invoice {
+  id         String   @id @default(cuid())
+  number     String   @unique // "INV-00001"
+  channelId  String
+  brandId    String?
+  amount     Float
+  paidAmount Float    @default(0)
+  status     String   @default("OPEN")
+  issuedAt   DateTime @default(now())
+  dueDate    DateTime
+  updatedAt  DateTime @updatedAt
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  brand   Brand?  @relation(fields: [brandId], references: [id])
+
+  @@index([status])
+  @@index([channelId])
+}
+
+// A last-mile delivery trip from an MFC to a channel (the Delivery App).
+// Status: PENDING | DISPATCHED | OUT_FOR_DELIVERY | DELIVERED | FAILED.
+model Delivery {
+  id          String    @id @default(cuid())
+  reference   String    @unique // "TRIP-00001"
+  mfcId       String
+  channelId   String
+  status      String    @default("PENDING")
+  driverName  String
+  vehicleNo   String
+  stops       Int       @default(1)
+  units       Int       @default(0)
+  slaHours    Int       @default(24)
+  etaAt       DateTime?
+  dispatchedAt DateTime?
+  deliveredAt DateTime?
+  onTime      Boolean?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  mfc     Mfc     @relation(fields: [mfcId], references: [id], onDelete: Cascade)
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@index([status])
 }

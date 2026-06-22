@@ -10,6 +10,8 @@ const nav = [
   { href: "/replenishment", label: "Replenishment", icon: "↻" },
   { href: "/returns", label: "Reverse Logistics", icon: "↩" },
   { href: "/corridor", label: "Cross-Border Corridor", icon: "✈" },
+  { href: "/deliveries", label: "Deliveries", icon: "⛟" },
+  { href: "/collections", label: "Collections (AR)", icon: "₹" },
   { href: "/inventory", label: "MFC Inventory", icon: "▦" },
   { href: "/brands", label: "Brands & Onboarding", icon: "★" },
 ];

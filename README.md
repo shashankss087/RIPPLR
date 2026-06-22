@@ -29,6 +29,10 @@ demand, and auto-raises replenishment orders before a stockout happens.
   economics (traditional vs OutNIF cost & transit, ~28% cost / ~33% transit saving), plus a
   Shipsy-style control tower that books containers and advances them through the milestone timeline
   (`BOOKED → CONSOLIDATING → IN_TRANSIT → CUSTOMS → AT_HUB → OUT_FOR_DELIVERY → DELIVERED`).
+- **Deliveries (last-mile)** — the Delivery App: MFC → channel trips with driver/vehicle, live status
+  (`PENDING → DISPATCHED → OUT_FOR_DELIVERY → DELIVERED`/`FAILED`) and on-time-vs-SLA tracking.
+- **Collections (AR)** — the Collection App: invoice outstanding with aging buckets
+  (current / 0–30 / 31–60 / 61–90 / 90+), collection rate, and payment allocation that settles invoices.
 - **MFC Inventory** — source-of-truth stock (on-hand / allocated / available / in-transit / safety)
   across seven MFCs (Bangalore, Hyderabad, Chennai, Mumbai, Pune, Delhi NCR, Ahmedabad).
 - **Brands & Onboarding** — onboard a brand in seconds; portfolio view with SKU counts.
@@ -78,6 +82,10 @@ To reset the data at any time: `npm run db:reset`.
 | GET    | `/api/corridor`                | Lane economics + corridor summary        |
 | GET/POST | `/api/shipments`             | List / book cross-border shipments       |
 | PATCH  | `/api/shipments/:id`           | Advance a shipment milestone             |
+| GET    | `/api/invoices` · `/summary`   | AR invoices · collections summary        |
+| PATCH  | `/api/invoices/:id`            | Record a payment                         |
+| GET    | `/api/deliveries` · `/summary` | Last-mile trips · delivery summary       |
+| PATCH  | `/api/deliveries/:id`          | Advance / fail a delivery                |
 
 ## Data model
 
