@@ -9,6 +9,7 @@ const nav = [
   { href: "/channels", label: "Channel Orchestration", icon: "⇄" },
   { href: "/replenishment", label: "Replenishment", icon: "↻" },
   { href: "/returns", label: "Reverse Logistics", icon: "↩" },
+  { href: "/corridor", label: "Cross-Border Corridor", icon: "✈" },
   { href: "/inventory", label: "MFC Inventory", icon: "▦" },
   { href: "/brands", label: "Brands & Onboarding", icon: "★" },
 ];

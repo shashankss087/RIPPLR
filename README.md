@@ -25,6 +25,10 @@ demand, and auto-raises replenishment orders before a stockout happens.
   `INITIATED → IN_QC (23-point) → DISPOSITIONED → CLOSED`. A **Resell** disposition restocks MFC
   inventory; every disposition (Resell / Refurbish / Recycle / Dispose) books recovered value.
   Tracks restock rate, value recovered, QC TAT, and a return-reasons quality loop shared with brands.
+- **Cross-Border Corridor (OutNIF)** — India → UAE → KSA → EU/US trade lanes with the deck's lane
+  economics (traditional vs OutNIF cost & transit, ~28% cost / ~33% transit saving), plus a
+  Shipsy-style control tower that books containers and advances them through the milestone timeline
+  (`BOOKED → CONSOLIDATING → IN_TRANSIT → CUSTOMS → AT_HUB → OUT_FOR_DELIVERY → DELIVERED`).
 - **MFC Inventory** — source-of-truth stock (on-hand / allocated / available / in-transit / safety)
   across seven MFCs (Bangalore, Hyderabad, Chennai, Mumbai, Pune, Delhi NCR, Ahmedabad).
 - **Brands & Onboarding** — onboard a brand in seconds; portfolio view with SKU counts.
@@ -71,6 +75,9 @@ To reset the data at any time: `npm run db:reset`.
 | GET/POST | `/api/returns`               | List / log returns                       |
 | GET    | `/api/returns/summary`         | Reverse-logistics analytics              |
 | PATCH  | `/api/returns/:id`             | Advance / disposition a return           |
+| GET    | `/api/corridor`                | Lane economics + corridor summary        |
+| GET/POST | `/api/shipments`             | List / book cross-border shipments       |
+| PATCH  | `/api/shipments/:id`           | Advance a shipment milestone             |
 
 ## Data model
 
@@ -79,6 +86,5 @@ demand side; `ReplenishmentOrder` links an MFC to a channel for a SKU. See `pris
 
 ## Roadmap (from the decks, not yet built)
 
-- Cross-border (OutNIF) corridor tracking and duty-optimized routing.
 - Real platform integrations (Blinkit/Zepto/Amazon APIs) replacing the simulated channel sync.
 - Collection (AR) and Delivery (last-mile) app surfaces.

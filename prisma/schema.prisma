@@ -22,7 +22,8 @@ model Brand {
   contactEmail String?
   onboardedAt DateTime @default(now())
 
-  skus Sku[]
+  skus      Sku[]
+  shipments Shipment[]
 
   @@index([type])
 }
@@ -186,4 +187,61 @@ model Return {
   @@index([status])
   @@index([skuId])
   @@index([reason])
+}
+
+// A cross-border trade lane in the OutNIF corridor (e.g. India -> UAE).
+// Holds the lane economics from the corridor deck: traditional vs OutNIF
+// cost and transit, for the savings analysis.
+model TradeLane {
+  id                  String @id @default(cuid())
+  name                String @unique // "India → UAE"
+  origin              String
+  destination         String
+  traditionalCostUsd  Int
+  outnifCostUsd       Int
+  traditionalTransitDays Int
+  outnifTransitDays   Int
+  sequence            Int    @default(0) // order along the corridor
+
+  shipments Shipment[]
+}
+
+// A container moving along a trade lane, tracked through the control tower.
+model Shipment {
+  id            String   @id @default(cuid())
+  reference     String   @unique // "OUTNIF-00001"
+  laneId        String
+  brandId       String?
+  containerNo   String
+  hsCode        String // customs classification
+  category      String // FMCG | PHARMA | CONSUMER_DURABLES | COLD_CHAIN
+  tempControlled Boolean @default(false)
+  valueUsd      Int
+  status        String   @default("BOOKED") // BOOKED | CONSOLIDATING | IN_TRANSIT | CUSTOMS | AT_HUB | OUT_FOR_DELIVERY | DELIVERED | EXCEPTION
+  departedAt    DateTime?
+  etaAt         DateTime?
+  deliveredAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  lane       TradeLane          @relation(fields: [laneId], references: [id], onDelete: Cascade)
+  brand      Brand?             @relation(fields: [brandId], references: [id])
+  milestones ShipmentMilestone[]
+
+  @@index([status])
+  @@index([laneId])
+}
+
+// A control-tower tracking event for a shipment (Shipsy-style timeline).
+model ShipmentMilestone {
+  id         String   @id @default(cuid())
+  shipmentId String
+  location   String
+  status     String
+  note       String?
+  at         DateTime @default(now())
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@index([shipmentId])
 }

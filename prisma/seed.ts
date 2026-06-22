@@ -13,6 +13,9 @@ const between = (min: number, max: number) => Math.round(min + rng() * (max - mi
 
 async function main() {
   console.log("Resetting data...");
+  await prisma.shipmentMilestone.deleteMany();
+  await prisma.shipment.deleteMany();
+  await prisma.tradeLane.deleteMany();
   await prisma.return.deleteMany();
   await prisma.salesHistory.deleteMany();
   await prisma.replenishmentOrder.deleteMany();
@@ -232,6 +235,64 @@ async function main() {
     });
   }
 
+  // ---- OutNIF cross-border corridor: lanes + shipments ----
+  const laneSeed = [
+    { name: "India → UAE", origin: "Mumbai (Nhava Sheva)", destination: "Dubai (Jebel Ali)", traditionalCostUsd: 2800, outnifCostUsd: 1850, traditionalTransitDays: 9, outnifTransitDays: 6, sequence: 1 },
+    { name: "India → KSA", origin: "Mumbai (Nhava Sheva)", destination: "Riyadh", traditionalCostUsd: 3400, outnifCostUsd: 2300, traditionalTransitDays: 13, outnifTransitDays: 8, sequence: 2 },
+    { name: "UAE → EU", origin: "Dubai (Jebel Ali)", destination: "Rotterdam", traditionalCostUsd: 3200, outnifCostUsd: 2400, traditionalTransitDays: 16, outnifTransitDays: 12, sequence: 3 },
+    { name: "KSA → EU", origin: "Jeddah", destination: "Hamburg", traditionalCostUsd: 2900, outnifCostUsd: 2200, traditionalTransitDays: 15, outnifTransitDays: 11, sequence: 4 },
+    { name: "India → EU (via UAE)", origin: "Mumbai (Nhava Sheva)", destination: "Rotterdam", traditionalCostUsd: 5800, outnifCostUsd: 4100, traditionalTransitDays: 28, outnifTransitDays: 17, sequence: 5 },
+    { name: "India → US East Coast", origin: "Mumbai (Nhava Sheva)", destination: "Newark", traditionalCostUsd: 6500, outnifCostUsd: 4800, traditionalTransitDays: 32, outnifTransitDays: 21, sequence: 6 },
+  ];
+  const lanes = [];
+  for (const l of laneSeed) lanes.push(await prisma.tradeLane.create({ data: l }));
+
+  const FLOW = ["BOOKED", "CONSOLIDATING", "IN_TRANSIT", "CUSTOMS", "AT_HUB", "OUT_FOR_DELIVERY", "DELIVERED"];
+  const categories = ["FMCG", "PHARMA", "CONSUMER_DURABLES", "COLD_CHAIN"];
+  const hsCodes = ["2106.90", "3004.90", "8517.13", "0406.10"];
+  const allBrands = await prisma.brand.findMany();
+
+  for (let s = 0; s < 11; s++) {
+    const lane = lanes[between(0, lanes.length - 1)];
+    const catIdx = between(0, categories.length - 1);
+    const targetIdx = between(0, FLOW.length - 1);
+    const ref = `OUTNIF-${String(s + 1).padStart(5, "0")}`;
+    const tempControlled = categories[catIdx] === "COLD_CHAIN" || (categories[catIdx] === "PHARMA" && rng() < 0.5);
+    const bookedDaysAgo = between(2, 20);
+    const bookedAt = new Date();
+    bookedAt.setUTCDate(bookedAt.getUTCDate() - bookedDaysAgo);
+
+    const etaAt = new Date(bookedAt);
+    etaAt.setUTCDate(etaAt.getUTCDate() + lane.outnifTransitDays);
+
+    const shipment = await prisma.shipment.create({
+      data: {
+        reference: ref,
+        laneId: lane.id,
+        brandId: rng() < 0.7 ? allBrands[between(0, allBrands.length - 1)].id : null,
+        containerNo: `CNTR${between(100000, 999999)}`,
+        hsCode: hsCodes[catIdx],
+        category: categories[catIdx],
+        tempControlled,
+        valueUsd: between(20000, 180000),
+        status: FLOW[targetIdx],
+        departedAt: targetIdx >= 2 ? new Date(bookedAt.getTime() + 2 * 86400000) : null,
+        deliveredAt: targetIdx === FLOW.length - 1 ? etaAt : null,
+        etaAt,
+        createdAt: bookedAt,
+      },
+    });
+
+    // backfill the milestone trail up to the current status
+    const milestones = [];
+    for (let m = 0; m <= targetIdx; m++) {
+      const at = new Date(bookedAt.getTime() + (m * lane.outnifTransitDays * 86400000) / FLOW.length);
+      const loc = m === FLOW.length - 1 ? lane.destination : m >= 3 ? "Border / Hub" : lane.origin;
+      milestones.push({ shipmentId: shipment.id, status: FLOW[m], location: loc, at });
+    }
+    await prisma.shipmentMilestone.createMany({ data: milestones });
+  }
+
   const counts = {
     brands: await prisma.brand.count(),
     skus: await prisma.sku.count(),
@@ -241,6 +302,8 @@ async function main() {
     channelStock: await prisma.channelStock.count(),
     salesHistory: await prisma.salesHistory.count(),
     returns: await prisma.return.count(),
+    tradeLanes: await prisma.tradeLane.count(),
+    shipments: await prisma.shipment.count(),
   };
   console.log("Seed complete:", counts);
 }
