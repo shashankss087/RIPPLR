@@ -1,0 +1,20 @@
+# Render Blueprint — deploy a public, shareable instance straight from this repo.
+# In Render: New → Blueprint → point at this repo/branch. It builds the
+# Dockerfile and gives you an https URL. (Free instances use an ephemeral disk,
+# so demo data re-seeds on cold start; add a paid Disk mounted at /data to
+# persist it.)
+services:
+  - type: web
+    name: ripplr-orchestrator
+    runtime: docker
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        value: file:/data/dev.db
+      - key: SESSION_SECRET
+        generateValue: true
+    # To persist data across restarts, uncomment (requires a paid plan):
+    # disk:
+    #   name: ripplr-data
+    #   mountPath: /data
+    #   sizeGB: 1

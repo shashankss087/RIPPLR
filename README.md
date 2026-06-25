@@ -70,6 +70,26 @@ Engine** on the dashboard.
 
 To reset the data at any time: `npm run db:reset`.
 
+## Deploy / share a live instance
+
+The app is fully self-contained (file-based SQLite, seeded on boot), so it deploys as a single
+container with no external database.
+
+**Run anywhere with Docker:**
+
+```bash
+docker build -t ripplr-orchestrator .
+docker run -p 3000:3000 ripplr-orchestrator     # → http://localhost:3000
+```
+
+The container creates and seeds the database on first boot. Mount a volume at `/data`
+(`-v ripplr:/data`) to persist it across restarts.
+
+**One-click public URL (Render):** push this repo, then in Render choose **New → Blueprint** and
+point it at the repo — [`render.yaml`](render.yaml) builds the Dockerfile and gives you an `https`
+URL. Railway and Fly.io work the same way straight from the `Dockerfile`. Set a real
+`SESSION_SECRET` env var in production.
+
 ### Demo logins (password: `ripplr123`)
 
 | Email               | Role         | Sees                          |

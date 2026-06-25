@@ -1,0 +1,9 @@
+node_modules
+.next
+.git
+walkthrough
+prisma/dev.db
+prisma/dev.db-journal
+npm-debug.log*
+*.tsbuildinfo
+.DS_Store
